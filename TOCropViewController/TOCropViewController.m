@@ -49,6 +49,9 @@
 @property (nonatomic, assign) BOOL navigationBarHidden;
 @property (nonatomic, assign) BOOL toolbarHidden;
 
+/* Save status bar hidden before showing this view controller to restore after dismissing. */
+@property (nonatomic, assign) BOOL statusBarWasHidden;
+
 /* On iOS 7, the popover view controller that appears when tapping 'Done' */
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -74,7 +77,7 @@
 - (instancetype)initWithCroppingStyle:(TOCropViewCroppingStyle)style image:(UIImage *)image
 {
     NSParameterAssert(image);
-
+    
     self = [super init];
     if (self) {
         self.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
@@ -101,9 +104,9 @@
 - (void)viewDidLoad
 {
     [super viewDidLoad];
-
+    
     BOOL circularMode = (self.croppingStyle == TOCropViewCroppingStyleCircular);
-
+    
     self.cropView.frame = [self frameForCropViewWithVerticalLayout:CGRectGetWidth(self.view.bounds) < CGRectGetHeight(self.view.bounds)];
     [self.view addSubview:self.cropView];
     
@@ -121,7 +124,7 @@
     self.toolbar.rotateClockwiseButtonTapped        = ^{ [weakSelf rotateCropViewClockwise]; };
     
     self.toolbar.clampButtonHidden = self.aspectRatioPickerButtonHidden || circularMode;
-    self.toolbar.rotateClockwiseButtonHidden = self.rotateClockwiseButtonHidden && !circularMode;
+    self.toolbar.rotateClockwiseButtonHidden = !circularMode;
     
     self.transitioningDelegate = self;
     self.view.backgroundColor = self.cropView.backgroundColor;
@@ -133,7 +136,13 @@
     
     if (animated) {
         self.inTransition = YES;
-        [self setNeedsStatusBarAppearanceUpdate];
+        if (self.forceHideStatusBar) {
+            self.statusBarWasHidden = [UIApplication sharedApplication].statusBarHidden;
+            [[UIApplication sharedApplication] setStatusBarHidden:YES
+                                                    withAnimation:UIStatusBarAnimationSlide];
+        } else {
+            [self setNeedsStatusBarAppearanceUpdate];
+        }
     }
     
     if (self.navigationController) {
@@ -145,7 +154,7 @@
         
         self.modalTransitionStyle = UIModalTransitionStyleCoverVertical;
     }
-
+    
     if (self.aspectRatioPreset != TOCropViewControllerAspectRatioPresetOriginal) {
         [self setAspectRatioPreset:self.aspectRatioPreset animated:NO];
     }
@@ -157,7 +166,9 @@
     self.inTransition = NO;
     self.cropView.simpleRenderMode = NO;
     if (animated && [UIApplication sharedApplication].statusBarHidden == NO) {
-        [UIView animateWithDuration:0.3f animations:^{ [self setNeedsStatusBarAppearanceUpdate]; }];
+        if (!self.forceHideStatusBar) {
+            [UIView animateWithDuration:0.3f animations:^{ [self setNeedsStatusBarAppearanceUpdate]; }];
+        }
         
         if (self.cropView.gridOverlayHidden) {
             [self.cropView setGridOverlayHidden:NO animated:YES];
@@ -173,7 +184,12 @@
 {
     [super viewWillDisappear:animated];
     self.inTransition = YES;
-    [UIView animateWithDuration:0.5f animations:^{ [self setNeedsStatusBarAppearanceUpdate]; }];
+    if (self.forceHideStatusBar) {
+        [[UIApplication sharedApplication] setStatusBarHidden:self.statusBarWasHidden
+                                                withAnimation:UIStatusBarAnimationSlide];
+    } else {
+        [UIView animateWithDuration:0.5f animations:^{ [self setNeedsStatusBarAppearanceUpdate]; }];
+    }
     
     if (self.navigationController) {
         [self.navigationController setNavigationBarHidden:self.navigationBarHidden animated:animated];
@@ -185,7 +201,9 @@
 {
     [super viewDidDisappear:animated];
     self.inTransition = NO;
-    [self setNeedsStatusBarAppearanceUpdate];
+    if (!self.forceHideStatusBar) {
+        [self setNeedsStatusBarAppearanceUpdate];
+    }
 }
 
 #pragma mark - Status Bar -
@@ -277,7 +295,7 @@
         } else {
             frame.origin.y = 44.0f;
         }
-
+        
         frame.size.width = CGRectGetWidth(bounds);
         frame.size.height = CGRectGetHeight(bounds) - 44.0f;
     }
@@ -450,7 +468,7 @@
         [self presentViewController:alertController animated:YES completion:nil];
     }
     else {
-    //TODO: Completely overhaul this once iOS 7 support is dropped
+        //TODO: Completely overhaul this once iOS 7 support is dropped
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
         
@@ -622,7 +640,7 @@
     self.transitionController.toView    = toView;
     self.transitionController.toFrame   = frame;
     self.prepareForTransitionHandler    = setup;
-
+    
     [viewController dismissViewControllerAnimated:YES completion:^ {
         if (completion) {
             completion();
@@ -647,7 +665,7 @@
         if (!CGRectIsEmpty(transitioning.fromFrame) || transitioning.fromView) {
             strongSelf.cropView.croppingViewsHidden = YES;
         }
-
+        
         if (strongSelf.prepareForTransitionHandler)
             strongSelf.prepareForTransitionHandler();
         
@@ -703,7 +721,7 @@
 {
     CGRect cropFrame = self.cropView.imageCropFrame;
     NSInteger angle = self.cropView.angle;
-
+    
     //If desired, when the user taps done, show an activity sheet
     if (self.showActivitySheetOnDone) {
         TOActivityCroppedImageProvider *imageItem = [[TOActivityCroppedImageProvider alloc] initWithImage:self.image cropFrame:cropFrame angle:angle circular:(self.croppingStyle == TOCropViewCroppingStyleCircular)];
@@ -736,7 +754,7 @@
             }
         }
         __weak typeof(activityController) blockController = activityController;
-        #if __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_8_0
+#if __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_8_0
         activityController.completionWithItemsHandler = ^(NSString *activityType, BOOL completed, NSArray *returnedItems, NSError *activityError) {
             if (!completed)
                 return;
@@ -749,7 +767,7 @@
                 blockController.completionWithItemsHandler = nil;
             }
         };
-        #else
+#else
         activityController.completionHandler = ^(NSString *activityType, BOOL completed) {
             if (!completed)
                 return;
@@ -762,7 +780,7 @@
                 blockController.completionHandler = nil;
             }
         };
-        #endif
+#endif
         
         return;
     }
