@@ -96,6 +96,11 @@ typedef NS_ENUM(NSInteger, TOCropViewCroppingStyle) {
  */
 @property (nonatomic, assign) CGSize aspectRatio;
 
+
+/** A minimum ratio of width / height and height / with, set as a float less than 1.  Enforces on both dimensions, such that width / height is not less than minAspectRatio and not greater than 1 / minAspectRatio
+ */
+@property (nonatomic,assign) float minAspectRatio;
+
 /**
  When the cropping box is locked to its current aspect ratio (But can still be resized)
  */
@@ -182,6 +187,7 @@ typedef NS_ENUM(NSInteger, TOCropViewCroppingStyle) {
 /**
  Rotates the entire canvas to a 90-degree angle. The default rotation is counterclockwise.
  
+ @param angle The angle in which to rotate (May be 0, 90, 180, 270)
  @param animated Whether the transition is animated
  */
 - (void)rotateImageNinetyDegreesAnimated:(BOOL)animated;

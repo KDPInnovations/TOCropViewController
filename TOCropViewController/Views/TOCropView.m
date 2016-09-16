@@ -642,6 +642,18 @@ typedef NS_ENUM(NSInteger, TOCropViewOverlayEdge) {
     frame.size.width  = MIN(frame.size.width, maxSize.width);
     frame.size.height = MIN(frame.size.height, maxSize.height);
     
+    // SET MAX/MIN BASED ON RATIO
+    if (_minAspectRatio){
+    float ratio=frame.size.width/frame.size.height;
+    
+    if (ratio<_minAspectRatio){
+        frame.size.width=_minAspectRatio*frame.size.height;
+    }
+    else if (ratio>(1/_minAspectRatio)){
+        frame.size.height=_minAspectRatio*frame.size.width;
+    }
+    }
+    
     //Clamp the X position of the box to the interior of the cropping bounds
     frame.origin.x = MAX(frame.origin.x, CGRectGetMinX(contentFrame));
     frame.origin.x = MIN(frame.origin.x, CGRectGetMaxX(contentFrame) - minSize.width);
