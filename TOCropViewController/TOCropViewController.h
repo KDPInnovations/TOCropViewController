@@ -114,7 +114,7 @@ typedef NS_ENUM(NSInteger, TOCropViewControllerToolbarPosition) {
 
 /** A minimum ratio of width / height and height / with, set as a float less than 1.  Enforces on both dimensions, such that width / height is not less than minAspectRatio and not greater than 1 / minAspectRatio
  */
-@property (nonatomic,assign) float minAspectRatio
+@property (nonatomic,assign) float minAspectRatio;
 
 /**
  The crop view managed by this view controller.
