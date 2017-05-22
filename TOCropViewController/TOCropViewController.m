@@ -1,7 +1,7 @@
 //
 //  TOCropViewController.h
 //
-//  Copyright 2015-2016 Timothy Oliver. All rights reserved.
+//  Copyright 2015-2017 Timothy Oliver. All rights reserved.
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to
@@ -154,7 +154,11 @@
         
         self.modalTransitionStyle = UIModalTransitionStyleCoverVertical;
     }
-    
+    else {
+        [self.cropView setBackgroundImageViewHidden:YES animated:NO];
+    }
+
+
     if (self.aspectRatioPreset != TOCropViewControllerAspectRatioPresetOriginal) {
         [self setAspectRatioPreset:self.aspectRatioPreset animated:NO];
     }
@@ -344,6 +348,7 @@
     [self.cropView prepareforRotation];
     self.cropView.frame = [self frameForCropViewWithVerticalLayout:!UIInterfaceOrientationIsPortrait(toInterfaceOrientation)];
     self.cropView.simpleRenderMode = YES;
+    self.cropView.internalLayoutDisabled = YES;
 }
 
 - (void)willAnimateRotationToInterfaceOrientation:(UIInterfaceOrientation)toInterfaceOrientation duration:(NSTimeInterval)duration
@@ -370,6 +375,7 @@
     self.toolbarSnapshotView = nil;
     
     [self.cropView setSimpleRenderMode:NO animated:YES];
+    self.cropView.internalLayoutDisabled = NO;
 }
 
 - (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator
@@ -395,14 +401,11 @@
 {
     BOOL animated = (self.cropView.angle == 0);
     
-    if (self.resetAspectRatioEnabled == NO) {
-        [self.cropView resetLayoutToDefaultAnimated:animated];
-    }
-    else {
+    if (self.resetAspectRatioEnabled) {
         self.aspectRatioLockEnabled = NO;
-        [self setAspectRatioPreset:TOCropViewControllerAspectRatioPresetOriginal animated:animated];
-        [self.cropView resetLayoutToDefaultAnimated:animated];
     }
+    
+    [self.cropView resetLayoutToDefaultAnimated:animated];
 }
 
 #pragma mark - Aspect Ratio Handling -
@@ -502,6 +505,8 @@
 - (void)setAspectRatioPreset:(TOCropViewControllerAspectRatioPreset)aspectRatioPreset animated:(BOOL)animated
 {
     CGSize aspectRatio = CGSizeZero;
+    
+    _aspectRatioPreset = aspectRatioPreset;
     
     switch (aspectRatioPreset) {
         case TOCropViewControllerAspectRatioPresetOriginal:
@@ -650,7 +655,7 @@
 
 - (id <UIViewControllerAnimatedTransitioning>)animationControllerForPresentedController:(UIViewController *)presented presentingController:(UIViewController *)presenting sourceController:(UIViewController *)source
 {
-    if (self.navigationController) {
+    if (self.navigationController || self.modalTransitionStyle == UIModalTransitionStyleCoverVertical) {
         return nil;
     }
     
@@ -678,7 +683,7 @@
 
 - (id <UIViewControllerAnimatedTransitioning>)animationControllerForDismissedController:(UIViewController *)dismissed
 {
-    if (self.navigationController) {
+    if (self.navigationController || self.modalTransitionStyle == UIModalTransitionStyleCoverVertical) {
         return nil;
     }
     
@@ -703,17 +708,32 @@
 #pragma mark - Button Feedback -
 - (void)cancelButtonTapped
 {
+    bool isDelegateOrCallbackHandled = NO;
+    
     if ([self.delegate respondsToSelector:@selector(cropViewController:didFinishCancelled:)]) {
         [self.delegate cropViewController:self didFinishCancelled:YES];
-        return;
+        
+        if (self.onDidFinishCancelled != nil) {
+            self.onDidFinishCancelled(YES);
+        }
+        
+        isDelegateOrCallbackHandled = YES;
     }
     
-    if (self.navigationController) {
-        [self.navigationController popViewControllerAnimated:YES];
+    if (self.onDidFinishCancelled != nil) {
+        self.onDidFinishCancelled(YES);
+        
+        isDelegateOrCallbackHandled = YES;
     }
-    else {
-        self.modalTransitionStyle = UIModalTransitionStyleCoverVertical;
-        [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
+    
+    if (!isDelegateOrCallbackHandled) {
+        if (self.navigationController) {
+            [self.navigationController popViewControllerAnimated:YES];
+        }
+        else {
+            self.modalTransitionStyle = UIModalTransitionStyleCoverVertical;
+            [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
+        }
     }
 }
 
@@ -759,10 +779,18 @@
             if (!completed)
                 return;
             
+            bool isCallbackOrDelegateHandled = NO;
+            
+            if (self.onDidFinishCancelled != nil) {
+                self.onDidFinishCancelled(NO);
+                isCallbackOrDelegateHandled = YES;
+            }
             if ([self.delegate respondsToSelector:@selector(cropViewController:didFinishCancelled:)]) {
                 [self.delegate cropViewController:self didFinishCancelled:NO];
+                isCallbackOrDelegateHandled = YES;
             }
-            else {
+            
+            if (!isCallbackOrDelegateHandled) {
                 [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
                 blockController.completionWithItemsHandler = nil;
             }
@@ -772,10 +800,18 @@
             if (!completed)
                 return;
             
+            bool isCallbackOrDelegateHandled = NO
+            
+            if (self.onDidFinishCancelled != nil) {
+                self.onDidFinishCancelled(NO)
+                isCallbackOrDelegateHandled = YES
+            }
             if ([self.delegate respondsToSelector:@selector(cropViewController:didFinishCancelled:)]) {
                 [self.delegate cropViewController:self didFinishCancelled:NO];
+                isCallbackOrDelegateHandled = YES
             }
-            else {
+            
+            if (!isCallbackOrDelegateHandled) {
                 [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
                 blockController.completionHandler = nil;
             }
@@ -785,20 +821,43 @@
         return;
     }
     
-    //If the delegate that only supplies crop data is provided, call it
+    BOOL isCallbackOrDelegateHandled = NO;
+    
+    //If the delegate/block that only supplies crop data is provided, call it
     if ([self.delegate respondsToSelector:@selector(cropViewController:didCropImageToRect:angle:)]) {
         [self.delegate cropViewController:self didCropImageToRect:cropFrame angle:angle];
+        isCallbackOrDelegateHandled = YES;
     }
-    else if (self.croppingStyle == TOCropViewCroppingStyleCircular && [self.delegate respondsToSelector:@selector(cropViewController:didCropToCircularImage:withRect:angle:)]) {
+    if (self.onDidCropImageToRect != nil) {
+        self.onDidCropImageToRect(cropFrame, angle);
+        isCallbackOrDelegateHandled = YES;
+    }
+    
+    BOOL isCircularImageDelegateAvailable = [self.delegate respondsToSelector:@selector(cropViewController:didCropToCircularImage:withRect:angle:)];
+    BOOL isCircularImageCallbackAvailable = self.onDidCropToCircleImage != nil;
+    
+    //If cropping circular and the circular generation delegate/block is implemented, call it
+    if (self.croppingStyle == TOCropViewCroppingStyleCircular && (isCircularImageDelegateAvailable || isCircularImageCallbackAvailable)) {
         UIImage *image = [self.image croppedImageWithFrame:cropFrame angle:angle circularClip:YES];
         
-        //dispatch on the next run-loop so the animation isn't interuppted by the crop operation
+        //Dispatch on the next run-loop so the animation isn't interuppted by the crop operation
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.03f * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [self.delegate cropViewController:self didCropToCircularImage:image withRect:cropFrame angle:angle];
+            if (isCircularImageDelegateAvailable) {
+                [self.delegate cropViewController:self didCropToCircularImage:image withRect:cropFrame angle:angle];
+            }
+            if (isCircularImageCallbackAvailable) {
+                self.onDidCropToCircleImage(image, cropFrame, angle);
+            }
         });
+        
+        isCallbackOrDelegateHandled = YES;
     }
-    //If the delegate that requires the specific cropped image is provided, call it
-    else if ([self.delegate respondsToSelector:@selector(cropViewController:didCropToImage:withRect:angle:)]) {
+    
+    BOOL isDidCropToImageDelegateAvailable = [self.delegate respondsToSelector:@selector(cropViewController:didCropToImage:withRect:angle:)];
+    BOOL isDidCropToImageCallbackAvailable = self.onDidCropToRect != nil;
+    
+    //If the delegate/block that requires the specific cropped image is provided, call it
+    if (isDidCropToImageDelegateAvailable || isDidCropToImageCallbackAvailable) {
         UIImage *image = nil;
         if (angle == 0 && CGRectEqualToRect(cropFrame, (CGRect){CGPointZero, self.image.size})) {
             image = self.image;
@@ -807,12 +866,21 @@
             image = [self.image croppedImageWithFrame:cropFrame angle:angle circularClip:NO];
         }
         
-        //dispatch on the next run-loop so the animation isn't interuppted by the crop operation
+        //Dispatch on the next run-loop so the animation isn't interuppted by the crop operation
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.03f * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [self.delegate cropViewController:self didCropToImage:image withRect:cropFrame angle:angle];
+            if (isDidCropToImageDelegateAvailable) {
+                [self.delegate cropViewController:self didCropToImage:image withRect:cropFrame angle:angle];
+            }
+            if (isDidCropToImageCallbackAvailable) {
+                self.onDidCropToRect(image, cropFrame, angle);
+            }
+            
         });
+        
+        isCallbackOrDelegateHandled = YES;
     }
-    else {
+    
+    if (!isCallbackOrDelegateHandled) {
         [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
     }
 }
@@ -896,6 +964,12 @@
 {
     self.cropView.resetAspectRatioEnabled = resetAspectRatioEnabled;
     self.aspectRatioPickerButtonHidden = (resetAspectRatioEnabled == NO && self.aspectRatioLockEnabled);
+}
+
+- (void)setCustomAspectRatio:(CGSize)customAspectRatio
+{
+    _customAspectRatio = customAspectRatio;
+    [self setAspectRatioPreset:TOCropViewControllerAspectRatioPresetCustom animated:NO];
 }
 
 - (BOOL)resetAspectRatioEnabled

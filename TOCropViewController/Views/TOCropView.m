@@ -1,7 +1,7 @@
 //
 //  TOCropView.m
 //
-//  Copyright 2015-2016 Timothy Oliver. All rights reserved.
+//  Copyright 2015-2017 Timothy Oliver. All rights reserved.
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to
@@ -189,14 +189,14 @@ typedef NS_ENUM(NSInteger, TOCropViewOverlayEdge) {
     self.scrollView.showsVerticalScrollIndicator = NO;
     self.scrollView.delegate = self;
     [self addSubview:self.scrollView];
-    
-    //[self.scrollView addObserver:self forKeyPath:@"contentSize" options:NSKeyValueObservingOptionNew context:nil];
-    
+
     self.scrollView.touchesBegan = ^{ [weakSelf startEditing]; };
     self.scrollView.touchesEnded = ^{ [weakSelf startResetTimer]; };
     
     //Background Image View
     self.backgroundImageView = [[UIImageView alloc] initWithImage:self.image];
+    self.backgroundImageView.layer.minificationFilter = kCAFilterTrilinear;
+
     
     //Background container view
     self.backgroundContainerView = [[UIView alloc] initWithFrame:self.backgroundImageView.frame];
@@ -235,6 +235,7 @@ typedef NS_ENUM(NSInteger, TOCropViewOverlayEdge) {
     [self addSubview:self.foregroundContainerView];
     
     self.foregroundImageView = [[UIImageView alloc] initWithImage:self.image];
+    self.foregroundImageView.layer.minificationFilter = kCAFilterTrilinear;
     [self.foregroundContainerView addSubview:self.foregroundImageView];
     
     // The following setup isn't needed during circular cropping
@@ -258,11 +259,6 @@ typedef NS_ENUM(NSInteger, TOCropViewOverlayEdge) {
     self.gridPanGestureRecognizer.delegate = self;
     [self.scrollView.panGestureRecognizer requireGestureRecognizerToFail:self.gridPanGestureRecognizer];
     [self addGestureRecognizer:self.gridPanGestureRecognizer];
-}
-
-- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSString *,id> *)change context:(void *)context
-{
-    NSLog(@"Change");
 }
 
 #pragma mark - View Layout -
@@ -1105,7 +1101,6 @@ typedef NS_ENUM(NSInteger, TOCropViewOverlayEdge) {
     CGSize size = self.scrollView.contentSize;
     size.width = floorf(size.width);
     size.height = floorf(size.height);
-    //self.backgroundContainerView.frame = (CGRect){CGPointZero, size};
     self.scrollView.contentSize = size;
     
     //IMPORTANT: Force the scroll view to update its content after changing the zoom scale
@@ -1320,7 +1315,7 @@ typedef NS_ENUM(NSInteger, TOCropViewOverlayEdge) {
 
 - (void)moveCroppedContentToCenterAnimated:(BOOL)animated
 {
-    if (self.simpleRenderMode)
+    if (self.internalLayoutDisabled)
         return;
     
     CGRect contentRect = self.contentBounds;
@@ -1374,11 +1369,16 @@ typedef NS_ENUM(NSInteger, TOCropViewOverlayEdge) {
             // a floating point noise that zooms the image in by about 5 pixels. This fixes that issue.
             if (scale < 1.0f - FLT_EPSILON || scale > 1.0f + FLT_EPSILON) {
                 strongSelf.scrollView.zoomScale *= scale;
+                strongSelf.scrollView.zoomScale = MIN(strongSelf.scrollView.maximumZoomScale, strongSelf.scrollView.zoomScale);
             }
-            
-            offset.x = MIN(-CGRectGetMaxX(cropFrame)+strongSelf.scrollView.contentSize.width, offset.x);
-            offset.y = MIN(-CGRectGetMaxY(cropFrame)+strongSelf.scrollView.contentSize.height, offset.y);
-            strongSelf.scrollView.contentOffset = offset;
+
+            // If it turns out the zoom operation would have exceeded the minizum zoom scale, don't apply
+            // the content offset
+            if (strongSelf.scrollView.zoomScale < strongSelf.scrollView.maximumZoomScale - FLT_EPSILON) {
+                offset.x = MIN(-CGRectGetMaxX(cropFrame)+strongSelf.scrollView.contentSize.width, offset.x);
+                offset.y = MIN(-CGRectGetMaxY(cropFrame)+strongSelf.scrollView.contentSize.height, offset.y);
+                strongSelf.scrollView.contentOffset = offset;
+            }
             
             strongSelf.cropBoxFrame = cropFrame;
         }
@@ -1457,13 +1457,12 @@ typedef NS_ENUM(NSInteger, TOCropViewOverlayEdge) {
     
     BOOL zoomOut = NO;
     if (cropBoxIsPortrait) {
-        CGFloat newWidth = cropBoxFrame.size.height * (aspectRatio.width/aspectRatio.height);
-        
+        CGFloat newWidth = floorf(cropBoxFrame.size.height * (aspectRatio.width/aspectRatio.height));
         CGFloat delta = cropBoxFrame.size.width - newWidth;
         cropBoxFrame.size.width = newWidth;
         offset.x += (delta * 0.5f);
         
-        if (delta < 0.0f)
+        if (delta < FLT_EPSILON)
             cropBoxFrame.origin.x = self.contentBounds.origin.x; //set to 0 to avoid accidental clamping by the crop frame sanitizer
         
         CGFloat boundsWidth = CGRectGetWidth(boundsFrame);
@@ -1475,12 +1474,12 @@ typedef NS_ENUM(NSInteger, TOCropViewOverlayEdge) {
         }
     }
     else {
-        CGFloat newHeight = cropBoxFrame.size.width * (aspectRatio.height/aspectRatio.width);
+        CGFloat newHeight = floorf(cropBoxFrame.size.width * (aspectRatio.height/aspectRatio.width));
         CGFloat delta = cropBoxFrame.size.height - newHeight;
         cropBoxFrame.size.height = newHeight;
         offset.y += (delta * 0.5f);
         
-        if (delta < 0.0f)
+        if (delta < FLT_EPSILON)
             cropBoxFrame.origin.x = self.contentBounds.origin.y;
         
         CGFloat boundsHeight = CGRectGetHeight(boundsFrame);
